@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 TUI para generación de informes semanales con Textual y Rich,
-compatible con Termux. Solo genera .docx (sin conversión a PDF).
+compatible con Termux. Ahora solo genera archivos .docx (sin conversión a PDF).
 """
 import os
 import json
@@ -14,22 +14,17 @@ from textual.widgets import (
     Static, ProgressBar, Label
 )
 from textual.containers import Horizontal
-from spire.doc import Document         # si aún usas Spire.Doc para docx manipulación
-from spire.doc.common import FileFormat  # puedes eliminar Spire.Doc si prefieres python-docx
+from docx import Document  # python-docx para manipular Plantilla
 
-# Si prefieres python-docx en lugar de Spire.Doc, descomenta estas líneas:
-# from docx import Document
-# y quita las importaciones de spire.doc arriba.
-
-# Rutas de trabajo
-BASE      = Path.cwd()
-DIR_JSON  = BASE / "informe_json";    DIR_JSON.mkdir(exist_ok=True)
-PLANTILLA = BASE / "informe_plantilla" / "plantilla.docx"
-DIR_OUT   = BASE / "informe_out";      DIR_OUT.mkdir(exist_ok=True)
+# Rutas de trabajo\ nBASE      = Path.cwd()\ nDIR_JSON  = BASE / "informe_json"; DIR_JSON.mkdir(exist_ok=True)\ nPLANTILLA = BASE / "informe_plantilla" / "plantilla.docx"\ nDIR_OUT   = BASE / "informe_out";   DIR_OUT.mkdir(exist_ok=True)
 
 console = Console()
 
 def sanitizar_id(nombre: str) -> str:
+    """
+    Reemplaza '.' por '_' y antepone '_' si comienza con dígito,
+    para cumplir ^[A-Za-z_][A-Za-z0-9_-]*$ en Textual.
+    """
     valid = nombre.replace(".", "_")
     if valid and valid[0].isdigit():
         valid = f"_{valid}"
@@ -47,6 +42,7 @@ class InformeApp(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static("[b]Selecciona un archivo JSON:[/b]")
+        # Listar JSON y crear ListItem(Label, id=sanitizado)
         files = [f for f in os.listdir(DIR_JSON) if f.endswith(".json")]
         items = [ListItem(Label(f), id=sanitizar_id(f)) for f in files]
         yield ListView(*items, id="json_list")
@@ -62,15 +58,19 @@ class InformeApp(App):
         yield Footer()
 
     async def on_list_view_selected(self, event: ListView.Selected) -> None:
+        # Habilitar botón Generar
         self.query_one("#btn_generate", Button).disabled = False
-        fid = event.item.id
+
+        # Recuperar JSON según event.item.id
+        f_id = event.item.id
         for fname in os.listdir(DIR_JSON):
-            if sanitizar_id(fname) == fid:
+            if sanitizar_id(fname) == f_id:
                 path = DIR_JSON / fname
                 break
         with open(path, encoding="utf-8") as f:
             self.current_data = json.load(f)
 
+        # Poblamos lista de informes
         rpt_list = self.query_one("#report_list", ListView)
         rpt_list.clear()
         for datos in self.current_data:
@@ -79,6 +79,7 @@ class InformeApp(App):
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_change":
+            # Restablecer selección
             self.query_one("#json_list", ListView).index = None
             self.query_one("#report_list", ListView).clear()
             self.query_one("#btn_generate", Button).disabled = True
@@ -102,41 +103,33 @@ class InformeApp(App):
 
             # Generar DOCX
             out_path = DIR_OUT / f"{nombre}.docx"
-            # Usando python-docx:
-            # from docx import Document
-            # doc = Document(str(PLANTILLA))
-            # for k, v in datos.items():
-            #     ph = f"[{k}]"
-            #     for p in doc.paragraphs:
-            #         if ph in p.text:
-            #             text = "".join(r.text for r in p.runs).replace(ph, str(v))
-            #             for r in p.runs:
-            #                 p._element.remove(r._element)
-            #             p.add_run(text)
-            #     for tbl in doc.tables:
-            #         for row in tbl.rows:
-            #             for cell in row.cells:
-            #                 if ph in cell.text:
-            #                     cell.text = cell.text.replace(ph, str(v))
-            # doc.save(str(out_path))
-
-            # Usando Spire.Doc:
-            doc = Document()
-            doc.LoadFromFile(str(PLANTILLA))
+            doc = Document(str(PLANTILLA))
             for k, v in datos.items():
                 ph = f"[{k}]"
-                doc.Replace(ph, str(v), False, True)
-            doc.SaveToFile(str(out_path), FileFormat.DOCX)
-            doc.Close()
+                for p in doc.paragraphs:
+                    if ph in p.text:
+                        text = "".join(run.text for run in p.runs).replace(ph, str(v))
+                        for run in p.runs:
+                            p._element.remove(run._element)
+                        p.add_run(text)
+                for tbl in doc.tables:
+                    for row in tbl.rows:
+                        for cell in row.cells:
+                            if ph in cell.text:
+                                cell.text = cell.text.replace(ph, str(v))
+            doc.save(str(out_path))
 
+            # Actualizar progreso global
             progreso = int(idx / total * 100)
             progress.update(progress=progreso)
             await asyncio.sleep(0.05)
 
         console.log("Generación completada.")
+        # Cerrar la app correctamente
         self.exit()
 
     def _no_conflicto(self, base: str) -> str:
+        """Evita sobreescritura añadiendo sufijos _v2, _v3…"""
         i = 1
         nombre = base
         while (DIR_OUT / f"{nombre}.docx").exists():
