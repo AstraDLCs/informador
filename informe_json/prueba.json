@@ -1,0 +1,27 @@
+[
+  {
+    "estudiante": "name test",
+    "numero_semana": 1,
+    "dia_inicio": 1,
+    "mes_inicio": 1,
+    "anno_inicio": 2025,
+    "dia_final": 6,
+    "mes_final": 1,
+    "anno_final": 2025,
+    "tarea_lunes": "Tarea de prueba para el lunes",
+    "hora_lunes": 1,
+    "tarea_martes": "Tarea de prueba para el martes",
+    "hora_martes": 2,
+    "tarea_miercoles": "Tarea de prueba para el miércoles",
+    "hora_miercoles": 3,
+    "tarea_jueves": "Tarea de prueba para el jueves",
+    "hora_jueves": 4,
+    "tarea_viernes": "Tarea de prueba para el viernes",
+    "hora_viernes": 5,
+    "tarea_sabado": "Tarea de prueba para el sábado",
+    "hora_sabado": 6,
+    "titulo_tarea_significativa": "Tarea significativa de prueba",
+    "descripcion_tarea_significativa": "Descripción detallada de prueba para la tarea más significativa de la semana.",
+    "hora_total": 21
+  }
+]
