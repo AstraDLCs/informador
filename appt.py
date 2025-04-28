@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
 """
 TUI para generación de informes semanales con Textual y Rich,
-compatible con Termux. Ahora solo genera archivos .docx (sin conversión a PDF).
+compatible con Termux. Corrige ListItem/Label, IDs sanitizados,
+y utiliza self.exit() para cerrar la app.
 """
 import os
 import json
@@ -14,9 +14,15 @@ from textual.widgets import (
     Static, ProgressBar, Label
 )
 from textual.containers import Horizontal
-from docx import Document  # python-docx para manipular Plantilla
+from textual import events
+from docx import Document
+from docx2pdf import convert
 
-# Rutas de trabajo\ nBASE      = Path.cwd()\ nDIR_JSON  = BASE / "informe_json"; DIR_JSON.mkdir(exist_ok=True)\ nPLANTILLA = BASE / "informe_plantilla" / "plantilla.docx"\ nDIR_OUT   = BASE / "informe_out";   DIR_OUT.mkdir(exist_ok=True)
+# Rutas de trabajo
+BASE       = Path.cwd()
+DIR_JSON   = BASE / "informe_json";   DIR_JSON.mkdir(exist_ok=True)
+PLANTILLA  = BASE / "informe_plantilla" / "plantilla.docx"
+DIR_OUT    = BASE / "informe_out";     DIR_OUT.mkdir(exist_ok=True)
 
 console = Console()
 
@@ -45,14 +51,16 @@ class InformeApp(App):
         # Listar JSON y crear ListItem(Label, id=sanitizado)
         files = [f for f in os.listdir(DIR_JSON) if f.endswith(".json")]
         items = [ListItem(Label(f), id=sanitizar_id(f)) for f in files]
-        yield ListView(*items, id="json_list")
+        self.list_json = ListView(*items)
+        yield self.list_json
 
         with Horizontal():
-            yield Button("Cambiar JSON",    id="btn_change")
+            yield Button("Cambiar JSON", id="btn_change")
             yield Button("Generar Informes", id="btn_generate", disabled=True)
 
         yield Static("[b]Informes a generar:[/b]")
-        yield ListView(id="report_list")
+        self.list_informes = ListView()
+        yield self.list_informes
 
         yield ProgressBar(total=100, id="progress")
         yield Footer()
@@ -61,7 +69,7 @@ class InformeApp(App):
         # Habilitar botón Generar
         self.query_one("#btn_generate", Button).disabled = False
 
-        # Recuperar JSON según event.item.id
+        # Recuperar nombre del fichero a partir de event.item.id
         f_id = event.item.id
         for fname in os.listdir(DIR_JSON):
             if sanitizar_id(fname) == f_id:
@@ -71,17 +79,16 @@ class InformeApp(App):
             self.current_data = json.load(f)
 
         # Poblamos lista de informes
-        rpt_list = self.query_one("#report_list", ListView)
-        rpt_list.clear()
+        self.list_informes.clear()
         for datos in self.current_data:
-            name = f"informe_{datos['estudiante']}_{datos['numero_semana']}"
-            rpt_list.append(ListItem(Label(name)))
+            nombre_inf = f"informe_{datos['estudiante']}_{datos['numero_semana']}"
+            self.list_informes.append(ListItem(Label(nombre_inf)))
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn_change":
-            # Restablecer selección
-            self.query_one("#json_list", ListView).index = None
-            self.query_one("#report_list", ListView).clear()
+            # Reset de selección
+            self.list_json.index = None
+            self.list_informes.clear()
             self.query_one("#btn_generate", Button).disabled = True
             self.query_one("#progress", ProgressBar).update(progress=0)
         elif event.button.id == "btn_generate":
@@ -101,8 +108,8 @@ class InformeApp(App):
             )
             datos["hora_total"] = str(horas)
 
-            # Generar DOCX
-            out_path = DIR_OUT / f"{nombre}.docx"
+            # Generar DOCX temporal
+            tmp = DIR_OUT / f"{nombre}.docx"
             doc = Document(str(PLANTILLA))
             for k, v in datos.items():
                 ph = f"[{k}]"
@@ -117,7 +124,11 @@ class InformeApp(App):
                         for cell in row.cells:
                             if ph in cell.text:
                                 cell.text = cell.text.replace(ph, str(v))
-            doc.save(str(out_path))
+            doc.save(str(tmp))
+
+            # Convertir a PDF y borrar intermedio
+            convert(str(tmp), str(DIR_OUT / f"{nombre}.pdf"))
+            tmp.unlink(missing_ok=True)
 
             # Actualizar progreso global
             progreso = int(idx / total * 100)
@@ -132,7 +143,7 @@ class InformeApp(App):
         """Evita sobreescritura añadiendo sufijos _v2, _v3…"""
         i = 1
         nombre = base
-        while (DIR_OUT / f"{nombre}.docx").exists():
+        while (DIR_OUT / f"{nombre}.pdf").exists():
             i += 1
             nombre = f"{base}_v{i}"
         return nombre
